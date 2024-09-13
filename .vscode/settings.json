@@ -59,7 +59,9 @@
   "cSpell.words": [
     "icmph",
     "icmphdr",
-    "iphdr"
+    "iphdr",
+    "pseudogram",
+    "tcph"
   ],
   "files.associations": {
     "ostream": "cpp",
