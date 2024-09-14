@@ -22,20 +22,20 @@ extern int createReceivingSocket(u_int16_t receivingPort);
 
 int createSendingSocket() {
     // Step 1: Create a raw socket for sending TCP packets
-    int send_sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_TCP);
-    if (send_sockfd < 0) {
+    int message_sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_TCP);
+    if (message_sockfd < 0) {
         perror("Socket creation failed");
         return -1;
     }
 
     // Step 2: Set socket option to include IP header
     int one = 1;
-    if (setsockopt(send_sockfd, IPPROTO_IP, IP_HDRINCL, &one, sizeof(one)) < 0) {
+    if (setsockopt(message_sockfd, IPPROTO_IP, IP_HDRINCL, &one, sizeof(one)) < 0) {
         perror("setsockopt failed");
         return -1;
     }
 
-    return send_sockfd;  // Return the sending socket
+    return message_sockfd;  // Return the sending socket
 }
 
 int main() {
@@ -76,12 +76,12 @@ int main() {
         u_int16_t receivingPort = 55001;
         u_int32_t sequenceNumber = 0;
         // Create separate sockets for sending and receiving
-        int send_sockfd = createSendingSocket();
+        int message_sockfd = createSendingSocket();
         int receive_sockfd = createReceivingSocket(receivingPort);
         bool ackReceived = false;
         bool handshakeCompleted = false;
         int messagesSent = 0;
-        if (send_sockfd < 0) {
+        if (message_sockfd < 0) {
             return 1;
         }
 
@@ -91,7 +91,7 @@ int main() {
         inet_pton(AF_INET, "127.0.0.1", &dest.sin_addr);  // Destination IP
 
         // Send the initial SYN packet
-        int messageSent = sendMessage(send_sockfd, "", sequenceNumber, 0, 1, 0, messagePort);
+        int messageSent = sendMessage(message_sockfd, "", sequenceNumber, 0, 1, 0, messagePort);
         sequenceNumber++;
         std::cout << "TCP SYN packet sent to port: " << messagePort << std::endl;
 
@@ -157,14 +157,14 @@ int main() {
                 if (ackNumberReceived == sequenceNumber) {
                     std::cout << "SYN-ACK received. Sending ACK..." << std::endl;
                     // Send the final ACK to complete the handshake
-                    int ackSent = sendMessage(send_sockfd, "", sequenceNumber,
+                    int ackSent = sendMessage(message_sockfd, "", sequenceNumber,
                                               seqNumberReceived + 1, 0, 1, messagePort);
                     std::cout << "ACK sent successfully to complete handshake!" << std::endl;
                     if (ackSent == 0) {
                         // After the Ack was send to complete the handShake, send the first data
                         handshakeCompleted = true;
                         char *message = lines[messagesSent];
-                        int messageSent = sendMessage(send_sockfd, message, sequenceNumber,
+                        int messageSent = sendMessage(message_sockfd, message, sequenceNumber,
                                                       seqNumberReceived + 1, 0, 0, messagePort);
                         if (messageSent == 0) {
                             std::cout << "Message Sent" << std::endl;
@@ -181,7 +181,7 @@ int main() {
             if (tcph->ack == 1 && handshakeCompleted && messagesSent < lines.size()) {
                 if (ackNumberReceived == sequenceNumber) {
                     char *message = lines[messagesSent];
-                    int messageSent = sendMessage(send_sockfd, message, sequenceNumber,
+                    int messageSent = sendMessage(message_sockfd, message, sequenceNumber,
                                                   seqNumberReceived + 1, 0, 0, messagePort);
                     if (messageSent == 0) {
                         std::cout << "Message Sent" << std::endl;
@@ -192,7 +192,14 @@ int main() {
                     std::cout << "Wrong ack number received, expected: " << sequenceNumber + 1
                               << ", received: " << ackNumberReceived << std::endl;
                 }
+            } else if (handshakeCompleted) {
+                int messageSent = sendMessage(message_sockfd, "", sequenceNumber,
+                                              seqNumberReceived + 1, 0, 1, messagePort);
+                if (messageSent == 0) {
+                    std::cout << "Ack Sent" << std::endl;
+                }
             }
+            
         }
 
         // Close the receiving socket

@@ -45,7 +45,7 @@ int rawSocketReceiver() {
     u_int16_t messagePort = 55001;  // Assuming client is sending from this port
     int recv_sockfd = createReceivingSocket(receivingPort);
     int message_sockfd = createSendingSocket();
-    bool handShakeDone = false;
+    bool handshakeCompleted = false;
     u_int32_t sequenceNumber = 100;
     if (recv_sockfd < 0) {
         return 1;
@@ -56,7 +56,7 @@ int rawSocketReceiver() {
     // Step 2: Buffer to receive the packet
     char buffer[4096];
     memset(buffer, 0, sizeof(buffer));
-
+    int messagesSent = 0;
     // Step 3: Receive packets in a loop
     while (true) {
         struct sockaddr saddr;
@@ -111,44 +111,51 @@ int rawSocketReceiver() {
         std::cout << " " << std::endl;
 
         // Respond with ACK if SYN is set
-        u_int32_t seqNumber = ntohl(tcph->seq);
-        u_int32_t ackNumber = ntohl(tcph->ack_seq);
+        u_int32_t seqNumberReceived = ntohl(tcph->seq);
+        u_int32_t ackNumberReceived = ntohl(tcph->ack_seq);
 
-        if (!handShakeDone && tcph->syn == 1) {
+        if (!handshakeCompleted && tcph->syn == 1) {
             std::cout << "SYN received, sending SYN-ACK..." << std::endl;
             int ackSent = sendMessage(message_sockfd, "", sequenceNumber,
-                                      seqNumber + 1,  // Acknowledge the SYN
-                                      1,              // SYN = 0 for ACK
-                                      1,              // ACK = 1 to acknowledge SYN
-                                      messagePort     // Send to the source port
+                                      seqNumberReceived + 1,  // Acknowledge the SYN
+                                      1,                      // SYN = 0 for ACK
+                                      1,                      // ACK = 1 to acknowledge SYN
+                                      messagePort             // Send to the source port
             );
 
             if (ackSent == 0) {
-                handShakeDone = true;
+                handshakeCompleted = true;
                 sequenceNumber++;
                 std::cout << "SYN-ACK sent" << std::endl;
             }
         }
         // If this is the SYN packet, send back ACK
-        if (handShakeDone && tcph->ack == 0) {
-            std::cout << "is handshake done? " << handShakeDone << std::endl;
+        if (handshakeCompleted && tcph->ack == 0) {
+            std::cout << "is handshake done? " << handshakeCompleted << std::endl;
             std::cout << "SYN received, sending ACK..." << std::endl;
             int ackSent = sendMessage(message_sockfd, "ACK for SYN", sequenceNumber,
-                                      seqNumber + payloadSize,  // Acknowledge the SYN
-                                      0,                        // SYN = 0 for ACK
-                                      1,                        // ACK = 1 to acknowledge SYN
-                                      messagePort               // Send to the source port
+                                      seqNumberReceived + payloadSize,  // Acknowledge the SYN
+                                      0,                                // SYN = 0 for ACK
+                                      1,           // ACK = 1 to acknowledge SYN
+                                      messagePort  // Send to the source port
             );
-
             if (ackSent == 0) {
                 std::cout << "ACK sent for SYN!" << std::endl;
             }
+            char *message = "labas";
+            int messageSent = sendMessage(message_sockfd, message, sequenceNumber,
+                                          seqNumberReceived, 0, 0, messagePort);
+            if (messageSent == 0) {
+                std::cout << "Message Sent" << std::endl;
+                messagesSent++;
+                sequenceNumber += strlen(message);
+            }
+
         } else if (tcph->ack == 1) {
             // Simply acknowledge any other packets with the current sequence number
             std::cout << "ACK received, no further action required." << std::endl;
         }
     }
-
     // Close the receiving socket
     close(recv_sockfd);
     return 0;
