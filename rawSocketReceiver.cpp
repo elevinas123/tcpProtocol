@@ -1,13 +1,18 @@
-#include <arpa/inet.h> // For inet_pton to convert IP addresses
+#include <arpa/inet.h>    // For inet_pton to convert IP addresses
+#include <netinet/ip.h>   // For IP header structure
+#include <netinet/tcp.h>  // For TCP header
+#include <sys/socket.h>
+#include <unistd.h>  // For close()
+
 #include <cstring>
 #include <iostream>
-#include <netinet/ip.h>  // For IP header structure
-#include <netinet/tcp.h> // For TCP header
-#include <sys/socket.h>
-#include <unistd.h> // For close()
 
-extern int sendMessage(int sockfd, char *message, uint32_t seqNum,
-                       uint32_t ackNum, uint8_t syn, uint8_t ack,
+extern int sendMessage(int sockfd,
+                       char *message,
+                       uint32_t seqNum,
+                       uint32_t ackNum,
+                       uint8_t syn,
+                       uint8_t ack,
                        uint16_t port);
 
 extern int createSendingSocket();
@@ -32,34 +37,17 @@ int createReceivingSocket(u_int16_t receivingPort) {
         return -1;
     }
 
-    return recv_sockfd; // Return the receiving socket
-}
-
-
-int sendAckMessage(int sockfd, tcphdr * tcph,  u_int16_t port) {
-
-    u_int32_t seqNumber = ntohl(tcph->seq);
-    u_int32_t ackNumber = ntohl(tcph->ack_seq);
-
-    if (tcph->syn ==1 && seqNumber == 0) {
-        int messageSent = sendMessage(sockfd, "Test message", 0, seqNumber + 1, 1, 1, port);
-        std::cout << "Tcp Ack Sent" << std::endl;
-        if (messageSent == 1)
-        {
-            return 1;
-        }
-        return 0;
-    }
-    return 0;
+    return recv_sockfd;  // Return the receiving socket
 }
 
 int rawSocketReceiver() {
     u_int16_t receivingPort = 55000;
-    u_int16_t messagePort = 55001;
+    u_int16_t messagePort = 55001;  // Assuming client is sending from this port
     int recv_sockfd = createReceivingSocket(receivingPort);
     int message_sockfd = createSendingSocket();
-    if (recv_sockfd < 0)
-    {
+    bool handShakeDone = false;
+    u_int32_t sequenceNumber = 100;
+    if (recv_sockfd < 0) {
         return 1;
     }
 
@@ -68,7 +56,7 @@ int rawSocketReceiver() {
     // Step 2: Buffer to receive the packet
     char buffer[4096];
     memset(buffer, 0, sizeof(buffer));
-    
+
     // Step 3: Receive packets in a loop
     while (true) {
         struct sockaddr saddr;
@@ -87,7 +75,7 @@ int rawSocketReceiver() {
 
         // Filter: Only process TCP packets
         if (iph->protocol != IPPROTO_TCP) {
-            continue; // Ignore non-TCP packets
+            continue;  // Ignore non-TCP packets
         }
 
         // Extract TCP header
@@ -95,7 +83,7 @@ int rawSocketReceiver() {
 
         // Filter: Only process packets sent to port 55000
         if (ntohs(tcph->dest) != receivingPort) {
-            continue; // Ignore packets not sent to port 55000
+            continue;  // Ignore packets not sent to port 55000
         }
 
         // Print the packet information
@@ -119,10 +107,45 @@ int rawSocketReceiver() {
         } else {
             std::cout << "No payload" << std::endl;
         }
+        std::cout << " " << std::endl;
 
-        int ackSent = sendAckMessage(message_sockfd, tcph, messagePort);
+        // Respond with ACK if SYN is set
+        u_int32_t seqNumber = ntohl(tcph->seq);
+        u_int32_t ackNumber = ntohl(tcph->ack_seq);
 
-        // Handle sending ACK or responses here if needed
+        if (!handShakeDone && tcph->syn == 1) {
+            std::cout << "SYN received, sending SYN-ACK..." << std::endl;
+            int ackSent = sendMessage(message_sockfd, "SYN-ACK", sequenceNumber,
+                                      seqNumber + 1,  // Acknowledge the SYN
+                                      1,              // SYN = 0 for ACK
+                                      1,              // ACK = 1 to acknowledge SYN
+                                      messagePort     // Send to the source port
+            );
+
+            if (ackSent == 0) {
+                handShakeDone = true;
+                sequenceNumber++;
+                std::cout << "SYN-ACK sent" << std::endl;
+            }
+        }
+        // If this is the SYN packet, send back ACK
+        if (handShakeDone && tcph->syn == 1) {
+            std::cout << "is handshake done? " << handShakeDone << std::endl;
+            std::cout << "SYN received, sending ACK..." << std::endl;
+            int ackSent = sendMessage(message_sockfd, "ACK for SYN", sequenceNumber,
+                                      seqNumber + 1,       // Acknowledge the SYN
+                                      0,                   // SYN = 0 for ACK
+                                      1,                   // ACK = 1 to acknowledge SYN
+                                      messagePort  // Send to the source port
+            );
+
+            if (ackSent == 0) {
+                std::cout << "ACK sent for SYN!" << std::endl;
+            }
+        } else if (tcph->ack == 1) {
+            // Simply acknowledge any other packets with the current sequence number
+            std::cout << "ACK received, no further action required." << std::endl;
+        }
     }
 
     // Close the receiving socket
