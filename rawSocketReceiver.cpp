@@ -99,11 +99,12 @@ int rawSocketReceiver() {
         int ip_header_len = iph->ihl * 4;
         int tcp_header_len = tcph->doff * 4;
         int header_size = ip_header_len + tcp_header_len;
-
+        int payloadSize = 0;
         if (data_size > header_size) {
-            char *payload = buffer + header_size;
-            int payload_size = data_size - header_size;
-            std::cout << "Payload: " << std::string(payload, payload_size) << std::endl;
+            char *payload = payload = buffer + header_size;
+            payloadSize = data_size - header_size;
+            std::cout << "Payload: " << std::string(payload, payloadSize) << std::endl;
+            std::cout << "Payload Size: " << payloadSize << std::endl;
         } else {
             std::cout << "No payload" << std::endl;
         }
@@ -115,7 +116,7 @@ int rawSocketReceiver() {
 
         if (!handShakeDone && tcph->syn == 1) {
             std::cout << "SYN received, sending SYN-ACK..." << std::endl;
-            int ackSent = sendMessage(message_sockfd, "SYN-ACK", sequenceNumber,
+            int ackSent = sendMessage(message_sockfd, "", sequenceNumber,
                                       seqNumber + 1,  // Acknowledge the SYN
                                       1,              // SYN = 0 for ACK
                                       1,              // ACK = 1 to acknowledge SYN
@@ -129,14 +130,14 @@ int rawSocketReceiver() {
             }
         }
         // If this is the SYN packet, send back ACK
-        if (handShakeDone && tcph->syn == 1) {
+        if (handShakeDone && tcph->ack == 0) {
             std::cout << "is handshake done? " << handShakeDone << std::endl;
             std::cout << "SYN received, sending ACK..." << std::endl;
             int ackSent = sendMessage(message_sockfd, "ACK for SYN", sequenceNumber,
-                                      seqNumber + 1,       // Acknowledge the SYN
-                                      0,                   // SYN = 0 for ACK
-                                      1,                   // ACK = 1 to acknowledge SYN
-                                      messagePort  // Send to the source port
+                                      seqNumber + payloadSize,  // Acknowledge the SYN
+                                      0,                        // SYN = 0 for ACK
+                                      1,                        // ACK = 1 to acknowledge SYN
+                                      messagePort               // Send to the source port
             );
 
             if (ackSent == 0) {

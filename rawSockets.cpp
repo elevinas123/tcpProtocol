@@ -64,8 +64,8 @@ int main() {
         inet_pton(AF_INET, "127.0.0.1", &dest.sin_addr);  // Destination IP
 
         // Send the initial SYN packet
-        char *message = "First SYN TCP";
-        int messageSent = sendMessage(send_sockfd, message, sequenceNumber, 0, 1, 0, messagePort);
+        int messageSent = sendMessage(send_sockfd, "", sequenceNumber, 0, 1, 0, messagePort);
+        sequenceNumber++;
         std::cout << "TCP SYN packet sent to port: " << messagePort << std::endl;
 
         char buffer[4096];
@@ -123,37 +123,44 @@ int main() {
             } else {
                 std::cout << "No payload" << std::endl;
             }
-            std::cout   << std::endl;
+            std::cout << std::endl;
 
             // Check if this is a SYN-ACK response
             if (tcph->syn == 1 && tcph->ack == 1 && !handshakeCompleted) {
-                
-                if (ackNumberReceived == sequenceNumber + 1) {
+                if (ackNumberReceived == sequenceNumber) {
                     std::cout << "SYN-ACK received. Sending ACK..." << std::endl;
-                    sequenceNumber++;
                     // Send the final ACK to complete the handshake
-                    int ackSent = sendMessage(send_sockfd, "ACK TCP", sequenceNumber,
+                    int ackSent = sendMessage(send_sockfd, "", sequenceNumber,
                                               seqNumberReceived + 1, 0, 1, messagePort);
+                    std::cout << "ACK sent successfully to complete handshake!" << std::endl;
                     if (ackSent == 0) {
+                        // After the Ack was send to complete the handShake, send the first data
                         handshakeCompleted = true;
-                        std::cout << "ACK sent successfully to complete handshake!" << std::endl;
-                        int ackSent = sendMessage(send_sockfd, "ACK TCP", sequenceNumber,
-                                                  seqNumberReceived + 1, 1, 0, messagePort);
-                        messagesSent++;
+                        char *message = "Test Data";
+                        int messageSent = sendMessage(send_sockfd, message, sequenceNumber,
+                                                      seqNumberReceived + 1, 0, 0, messagePort);
+                        if (messageSent == 0) {
+                            std::cout << "Message Sent" << std::endl;
+                            messagesSent++;
+                            sequenceNumber += strlen(message);
+                        }
                     }
                 } else {
                     std::cout << "Wrong ack number received, expected: " << sequenceNumber + 1
                               << ", received: " << ackNumberReceived << std::endl;
-                    
                 }
                 continue;
             }
             if (tcph->ack == 1 && handshakeCompleted && messagesSent < 5) {
-                if (ackNumberReceived == sequenceNumber + 1) {
-                    sequenceNumber++;
-                    int ackSent = sendMessage(send_sockfd, "ACK TCP", sequenceNumber,
-                                              seqNumberReceived + 1, 1, 0, messagePort);
-                    messagesSent++;
+                if (ackNumberReceived == sequenceNumber) {
+                    char *message = "Test Data";
+                    int messageSent = sendMessage(send_sockfd, message, sequenceNumber,
+                                                  seqNumberReceived + 1, 0, 0, messagePort);
+                    if (messageSent == 0) {
+                        std::cout << "Message Sent" << std::endl;
+                        messagesSent++;
+                        sequenceNumber += strlen(message);
+                    }
                 } else {
                     std::cout << "Wrong ack number received, expected: " << sequenceNumber + 1
                               << ", received: " << ackNumberReceived << std::endl;
