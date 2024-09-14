@@ -6,6 +6,7 @@
 
 #include <cstring>
 #include <iostream>
+#include <sstream>  // For std::stringstream
 
 extern int sendMessage(int sockfd,
                        char *message,
@@ -39,7 +40,32 @@ int createReceivingSocket(u_int16_t receivingPort) {
 
     return recv_sockfd;  // Return the receiving socket
 }
+struct ParsedReceivedMessage {
+    std::string id;  // Identifier string
+    int message;     // The message value as an integer
+};
 
+ParsedReceivedMessage parseReceivedPayloadToStruct(const std::string &payload) {
+    ParsedReceivedMessage parsed;
+
+    // Find the position of the colon (:) separating id and message
+    size_t delimiter_pos = payload.find(':');
+    if (delimiter_pos != std::string::npos) {
+        // Extract the id from the payload
+        parsed.id = payload.substr(0, delimiter_pos);
+
+        // Extract the message (as a string) and convert it to an integer
+        std::string message_str = payload.substr(delimiter_pos + 1);
+        parsed.message = std::stoi(message_str);  // Convert to int
+    } else {
+        // Handle invalid payload (no colon found)
+        std::cerr << "Invalid payload format: " << payload << std::endl;
+        parsed.id = "";
+        parsed.message = 0;
+    }
+
+    return parsed;  // Return the parsed struct
+}
 int rawSocketReceiver() {
     u_int16_t receivingPort = 55000;
     u_int16_t messagePort = 55001;  // Assuming client is sending from this port
@@ -86,33 +112,28 @@ int rawSocketReceiver() {
             continue;  // Ignore packets not sent to port 55000
         }
 
-        // Print the packet information
-        std::cout << "TCP Packet received on port: " << receivingPort << std::endl;
-        std::cout << "Source IP: " << inet_ntoa(*(struct in_addr *)&iph->saddr) << std::endl;
-        std::cout << "Source Port: " << ntohs(tcph->source) << std::endl;
-        std::cout << "SYN Flag: " << (tcph->syn ? "1" : "0") << std::endl;
-        std::cout << "ACK Flag: " << (tcph->ack ? "1" : "0") << std::endl;
-        std::cout << "Sequence Number: " << ntohl(tcph->seq) << std::endl;
-        std::cout << "ACK Number: " << ntohl(tcph->ack_seq) << std::endl;
+        // Respond to SYN-ACK by sending ACK
+        u_int32_t seqNumberReceived = ntohl(tcph->seq);
+        u_int32_t ackNumberReceived = ntohl(tcph->ack_seq);
 
         // Handle any payload
         int ip_header_len = iph->ihl * 4;
         int tcp_header_len = tcph->doff * 4;
         int header_size = ip_header_len + tcp_header_len;
         int payloadSize = 0;
+        std::string payload;
+
+        // Check if there is any payload
         if (data_size > header_size) {
-            char *payload = payload = buffer + header_size;
-            payloadSize = data_size - header_size;
-            std::cout << "Payload: " << std::string(payload, payloadSize) << std::endl;
-            std::cout << "Payload Size: " << payloadSize << std::endl;
+            char *payload_char = buffer + header_size;
+            int payloadSize = data_size - header_size;
+
+            // Convert payload to std::string
+            payload = std::string(payload_char, payloadSize);
+            std::cout << "Payload as std::string: " << payload << std::endl;
         } else {
             std::cout << "No payload" << std::endl;
         }
-        std::cout << " " << std::endl;
-
-        // Respond with ACK if SYN is set
-        u_int32_t seqNumberReceived = ntohl(tcph->seq);
-        u_int32_t ackNumberReceived = ntohl(tcph->ack_seq);
 
         if (!handshakeCompleted && tcph->syn == 1) {
             std::cout << "SYN received, sending SYN-ACK..." << std::endl;
@@ -127,34 +148,58 @@ int rawSocketReceiver() {
                 handshakeCompleted = true;
                 sequenceNumber++;
                 std::cout << "SYN-ACK sent" << std::endl;
+                std::cout << " " << std::endl;
             }
+            continue;
         }
         // If this is the SYN packet, send back ACK
         if (handshakeCompleted && tcph->ack == 0) {
-            std::cout << "is handshake done? " << handshakeCompleted << std::endl;
-            std::cout << "SYN received, sending ACK..." << std::endl;
-            int ackSent = sendMessage(message_sockfd, "ACK for SYN", sequenceNumber,
+            int ackSent = sendMessage(message_sockfd, "", sequenceNumber,
                                       seqNumberReceived + payloadSize,  // Acknowledge the SYN
                                       0,                                // SYN = 0 for ACK
                                       1,           // ACK = 1 to acknowledge SYN
                                       messagePort  // Send to the source port
             );
-            if (ackSent == 0) {
-                std::cout << "ACK sent for SYN!" << std::endl;
+            if (ackSent != 0) {
+                std::cout << "Failed to send ACK" << std::endl;
             }
-            char *message = "labas";
-            int messageSent = sendMessage(message_sockfd, message, sequenceNumber,
+            if (payload.size() <1) continue;
+            // Assuming payloadInfo has been parsed and message has been processed
+            ParsedReceivedMessage payloadInfo = parseReceivedPayloadToStruct(payload);
+
+            // Example: Square the message value (int)
+            payloadInfo.message *= payloadInfo.message;  // Modify the message by squaring it
+
+            // Step 1: Convert the message (int) to string and concatenate it with the id
+            std::stringstream ss;
+            ss << payloadInfo.id << ":" << payloadInfo.message;  // Format: "id:message"
+
+            // Step 2: Get the final payload string
+            std::string payloadStr = ss.str();
+
+            // Step 3: Allocate a char* buffer for the payload
+            size_t messageLength = payloadStr.length() + 1;  // Include space for null terminator
+            char *charPayload = new char[messageLength];     // Dynamically allocate memory
+
+            // Step 4: Copy the std::string into the char* buffer
+            std::strcpy(charPayload, payloadStr.c_str());  // Copy payload string to char*
+
+            // Now you have the payload ready to send in charPayload, which is a char*
+            // Example output
+            std::cout << "Prepared payload to send: " << charPayload << std::endl;
+            int messageSent = sendMessage(message_sockfd, charPayload, sequenceNumber,
                                           seqNumberReceived, 0, 0, messagePort);
             if (messageSent == 0) {
                 std::cout << "Message Sent" << std::endl;
                 messagesSent++;
-                sequenceNumber += strlen(message);
+                sequenceNumber += strlen(charPayload);
             }
 
         } else if (tcph->ack == 1) {
             // Simply acknowledge any other packets with the current sequence number
             std::cout << "ACK received, no further action required." << std::endl;
         }
+        std::cout << std::endl;
     }
     // Close the receiving socket
     close(recv_sockfd);

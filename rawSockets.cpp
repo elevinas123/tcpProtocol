@@ -37,6 +37,32 @@ int createSendingSocket() {
 
     return message_sockfd;  // Return the sending socket
 }
+struct ParsedMessage {
+    int id;       // Identifier string
+    int message;  // The message value as an integer
+};
+
+ParsedMessage parsePayloadToStruct(const std::string &payload) {
+    ParsedMessage parsed;
+
+    // Find the position of the colon (:) separating id and message
+    size_t delimiter_pos = payload.find(':');
+    if (delimiter_pos != std::string::npos) {
+        // Extract the id from the payload
+        parsed.id = std::stoi(payload.substr(0, delimiter_pos));
+
+        // Extract the message (as a string) and convert it to an integer
+        std::string message_str = payload.substr(delimiter_pos + 1);
+        parsed.message = std::stoi(message_str);  // Convert to int
+    } else {
+        // Handle invalid payload (no colon found)
+        std::cerr << "Invalid payload format: " << payload << std::endl;
+        parsed.id = -1;
+        parsed.message = 0;
+    }
+
+    return parsed;  // Return the parsed struct
+}
 
 int main() {
     std::cout << "Starting TCP server" << std::endl;
@@ -70,6 +96,46 @@ int main() {
         // Print the stored lines
         for (const char *line : lines) {
             std::cout << line << std::endl;
+        }
+
+        struct MessageInfo {
+            int index;           // Index in the vector (id)
+            uint32_t seq_start;  // Starting sequence number of the message
+            uint32_t seq_end;    // Ending sequence number (seq_start + message length)
+            bool completed;      // Whether the message has been acknowledged
+            char *messageSent;   // The message itself, including the id
+            int messageReceived;
+        };
+
+        std::vector<MessageInfo> messageInfoVector;
+        uint32_t next_seq_num = 0;
+
+        for (size_t i = 0; i < lines.size(); ++i) {
+            char *original_message = lines[i];
+
+            // Include the id (index) into the message
+            // Calculate the length needed for the message with id
+            size_t id_length = std::to_string(i).length();
+            size_t original_length = strlen(original_message);
+            size_t message_length =
+                id_length + 1 + original_length + 1;  // id + ':' + message + '\0'
+
+            // Allocate memory for the new message
+            char *message_with_id = new char[message_length];
+
+            // Format the message to include the id
+            snprintf(message_with_id, message_length, "%zu:%s", i, original_message);
+
+            MessageInfo info;
+            info.index = i;
+            info.seq_start = next_seq_num;
+            info.seq_end = next_seq_num + strlen(message_with_id);
+            info.completed = false;
+            info.messageSent = message_with_id;  // Store the message with id
+            info.messageReceived = -1;
+            messageInfoVector.push_back(info);
+
+            next_seq_num = info.seq_end;  // Update for next message
         }
 
         u_int16_t messagePort = 55000;
@@ -129,28 +195,29 @@ int main() {
             u_int32_t seqNumberReceived = ntohl(tcph->seq);
             u_int32_t ackNumberReceived = ntohl(tcph->ack_seq);
 
-            // Print the packet information
-            std::cout << "TCP Packet received on port: " << receivingPort << std::endl;
-            std::cout << "Source IP: " << inet_ntoa(*(struct in_addr *)&iph->saddr) << std::endl;
-            std::cout << "Source Port: " << ntohs(tcph->source) << std::endl;
-            std::cout << "SYN Flag: " << (tcph->syn ? "1" : "0") << std::endl;
-            std::cout << "ACK Flag: " << (tcph->ack ? "1" : "0") << std::endl;
-            std::cout << "Sequence Number: " << seqNumberReceived << std::endl;
-            std::cout << "ACK Number: " << ackNumberReceived << std::endl;
-
             // Handle any payload
             int ip_header_len = iph->ihl * 4;
             int tcp_header_len = tcph->doff * 4;
             int header_size = ip_header_len + tcp_header_len;
+            int payloadSize = 0;
+            std::string payload;
 
+            // Check if there is any payload
             if (data_size > header_size) {
-                char *payload = buffer + header_size;
-                int payload_size = data_size - header_size;
-                std::cout << "Payload: " << std::string(payload, payload_size) << std::endl;
+                char *payload_char = buffer + header_size;
+                int payloadSize = data_size - header_size;
+
+                // Convert payload to std::string
+                payload = std::string(payload_char, payloadSize);
+                std::cout << "Payload as std::string: " << payload << std::endl;
             } else {
                 std::cout << "No payload" << std::endl;
             }
-            std::cout << std::endl;
+
+            // Now you can access the payload string here
+            if (!payload.empty()) {
+                std::cout << "Accessing payload outside of if: " << payload << std::endl;
+            }
 
             // Check if this is a SYN-ACK response
             if (tcph->syn == 1 && tcph->ack == 1 && !handshakeCompleted) {
@@ -160,46 +227,53 @@ int main() {
                     int ackSent = sendMessage(message_sockfd, "", sequenceNumber,
                                               seqNumberReceived + 1, 0, 1, messagePort);
                     std::cout << "ACK sent successfully to complete handshake!" << std::endl;
-                    if (ackSent == 0) {
-                        // After the Ack was send to complete the handShake, send the first data
-                        handshakeCompleted = true;
-                        char *message = lines[messagesSent];
-                        int messageSent = sendMessage(message_sockfd, message, sequenceNumber,
-                                                      seqNumberReceived + 1, 0, 0, messagePort);
-                        if (messageSent == 0) {
-                            std::cout << "Message Sent" << std::endl;
-                            messagesSent++;
-                            sequenceNumber += strlen(message);
+                    handshakeCompleted = true;
+                } else {
+                    std::cout << "Wrong ack number received, expected: " << sequenceNumber + 1
+                              << ", received: " << ackNumberReceived << std::endl;
+                }
+                std::cout << std::endl;
+            }
+            if (handshakeCompleted && messagesSent < lines.size()) {
+                for (int i = 0; i < messageInfoVector.size(); i++) {
+                    MessageInfo messageInfo = messageInfoVector[messagesSent];
+
+                    if (sendMessage(message_sockfd, messageInfo.messageSent, messageInfo.seq_end,
+                                    ackNumberReceived, 0, 0, messagePort) != 0) {
+                        std::cout << "Failed To Send Message" << std::endl;
+                    }
+                    std::cout << "Message Sent, Payload: " << messageInfo.messageSent << std::endl;
+                    messagesSent++;
+                }
+            }
+            if (tcph->ack == 0 && handshakeCompleted) {
+                if (payload.size() > 0) {
+                    ParsedMessage message = parsePayloadToStruct(payload);
+                    if (message.id > -1 && message.id < messageInfoVector.size()) {
+                        messageInfoVector[message.id].messageReceived = message.message;
+                        messageInfoVector[message.id].completed = true;
+                    } else {
+                        std::cout << "Bad Packet" << std::endl;
+                    }
+                    int allCompleted = true;
+                    for (int i = 0; i < messageInfoVector.size(); i++) {
+                        if (!messageInfoVector[i].completed) {
+                            allCompleted = false;
+                            break;
                         }
                     }
-                } else {
-                    std::cout << "Wrong ack number received, expected: " << sequenceNumber + 1
-                              << ", received: " << ackNumberReceived << std::endl;
-                }
-                continue;
-            }
-            if (tcph->ack == 1 && handshakeCompleted && messagesSent < lines.size()) {
-                if (ackNumberReceived == sequenceNumber) {
-                    char *message = lines[messagesSent];
-                    int messageSent = sendMessage(message_sockfd, message, sequenceNumber,
-                                                  seqNumberReceived + 1, 0, 0, messagePort);
-                    if (messageSent == 0) {
-                        std::cout << "Message Sent" << std::endl;
-                        messagesSent++;
-                        sequenceNumber += strlen(message);
+                    if (allCompleted) {
+                        std::cout << "All Messages Received" << std::endl;
+                        std::cout << std::endl;
+                        for (int i = 0; i < messageInfoVector.size(); i++) {
+                            std::cout << "Initial num: " << messageInfoVector[i].messageSent
+                                      << ", Output: " << messageInfoVector[i].messageReceived
+                                      << std::endl;
+                        }
                     }
-                } else {
-                    std::cout << "Wrong ack number received, expected: " << sequenceNumber + 1
-                              << ", received: " << ackNumberReceived << std::endl;
-                }
-            } else if (handshakeCompleted) {
-                int messageSent = sendMessage(message_sockfd, "", sequenceNumber,
-                                              seqNumberReceived + 1, 0, 1, messagePort);
-                if (messageSent == 0) {
-                    std::cout << "Ack Sent" << std::endl;
                 }
             }
-            
+            std::cout << std::endl;
         }
 
         // Close the receiving socket
