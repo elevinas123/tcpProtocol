@@ -16,24 +16,17 @@ struct ParsedReceivedMessage {
 // Function to parse the payload into a struct
 ParsedReceivedMessage parseReceivedPayloadToStruct(const std::string& payload) {
     ParsedReceivedMessage parsed;
-
-    // Find the position of the colon (:) separating id and message
     size_t delimiter_pos = payload.find(':');
     if (delimiter_pos != std::string::npos) {
-        // Extract the id from the payload
         parsed.id = payload.substr(0, delimiter_pos);
-
-        // Extract the message (as a string) and convert it to an integer
         std::string message_str = payload.substr(delimiter_pos + 1);
-        parsed.message = std::stoi(message_str);  // Convert to int
+        parsed.message = std::stoi(message_str);
     } else {
-        // Handle invalid payload (no colon found)
         std::cerr << "Invalid payload format: " << payload << std::endl;
         parsed.id = "";
         parsed.message = 0;
     }
-
-    return parsed;  // Return the parsed struct
+    return parsed;
 }
 
 int main() {
@@ -53,11 +46,11 @@ int main() {
         return 1;
     }
 
-    // Bind the socket to the loopback IP address and port
+    // Bind the socket to the specific IP address and port
     sockaddr_in serverAddr;
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_port = htons(55000);  // Use port 55000
-    serverAddr.sin_addr.s_addr = inet_addr("127.0.0.1");  // Bind to loopback address
+    serverAddr.sin_addr.s_addr = inet_addr("192.168.1.180");  // Bind to specific IP address
 
     if (bind(listenSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
         std::cerr << "Bind failed with error: " << WSAGetLastError() << std::endl;
@@ -74,7 +67,7 @@ int main() {
         return 1;
     }
 
-    std::cout << "Server is listening on 127.0.0.1:55000..." << std::endl;
+    std::cout << "Server is listening on 192.168.1.180:55000..." << std::endl;
 
     while (true) {
         // Accept a client socket
@@ -88,49 +81,56 @@ int main() {
             continue;  // Continue to accept other connections
         }
 
-        // Receive data from the client in a loop
-        while (true) {
-            char recvbuf[512];
-            int recvbuflen = sizeof(recvbuf);
+        // Retrieve and display client's IP address
+        char clientIP[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &(clientAddr.sin_addr), clientIP, INET_ADDRSTRLEN);
+        std::cout << "Connection accepted from " << clientIP << ":" << ntohs(clientAddr.sin_port) << std::endl;
 
-            int recvResult = recv(clientSocket, recvbuf, recvbuflen, 0);
-            if (recvResult > 0) {
-                std::string receivedData(recvbuf, recvResult);
-                std::cout << "Data received: " << receivedData << std::endl;
+        // Optional: Restrict to specific client IP
+        if (strcmp(clientIP, "192.168.1.234") != 0) {
+            std::cerr << "Unauthorized client attempted to connect. Closing connection." << std::endl;
+            closesocket(clientSocket);
+            continue;
+        }
 
-                // Parse the received payload
-                ParsedReceivedMessage payloadInfo = parseReceivedPayloadToStruct(receivedData);
+        // Receive data from the client
+        char recvbuf[512];
+        int recvbuflen = sizeof(recvbuf);
 
-                // Square the message value
-                payloadInfo.message *= payloadInfo.message;
+        int recvResult = recv(clientSocket, recvbuf, recvbuflen, 0);
+        if (recvResult > 0) {
+            std::string receivedData(recvbuf, recvResult);
+            std::cout << "Data received: " << receivedData << std::endl;
 
-                // Prepare the response payload
-                std::stringstream ss;
-                ss << payloadInfo.id << ":" << payloadInfo.message;
-                std::string responsePayload = ss.str();
+            // Parse the received payload
+            ParsedReceivedMessage payloadInfo = parseReceivedPayloadToStruct(receivedData);
 
-                // Send the response back to the client
-                int sendResult = send(clientSocket, responsePayload.c_str(), responsePayload.length(), 0);
-                if (sendResult == SOCKET_ERROR) {
-                    std::cerr << "Send failed with error: " << WSAGetLastError() << std::endl;
-                    break; // Exit the receive loop
-                } else {
-                    std::cout << "Response sent to client: " << responsePayload << std::endl;
-                }
-            } else if (recvResult == 0) {
-                std::cout << "Connection closing..." << std::endl;
-                break; // Exit the receive loop
+            // Square the message value
+            payloadInfo.message *= payloadInfo.message;
+
+            // Prepare the response payload
+            std::stringstream ss;
+            ss << payloadInfo.id << ":" << payloadInfo.message;
+            std::string responsePayload = ss.str();
+
+            // Send the response back to the client
+            int sendResult = send(clientSocket, responsePayload.c_str(), responsePayload.length(), 0);
+            if (sendResult == SOCKET_ERROR) {
+                std::cerr << "Send failed with error: " << WSAGetLastError() << std::endl;
             } else {
-                std::cerr << "Receive failed with error: " << WSAGetLastError() << std::endl;
-                break; // Exit the receive loop
+                std::cout << "Response sent to client: " << responsePayload << std::endl;
             }
+        } else if (recvResult == 0) {
+            std::cout << "Connection closing..." << std::endl;
+        } else {
+            std::cerr << "Receive failed with error: " << WSAGetLastError() << std::endl;
         }
 
         // Close the client socket
         closesocket(clientSocket);
     }
 
-    // Cleanup (this point is never reached in the current code)
+    // Cleanup
     closesocket(listenSocket);
     WSACleanup();
 
