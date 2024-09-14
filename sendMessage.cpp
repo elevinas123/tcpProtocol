@@ -52,8 +52,8 @@ int sendMessage(int sockfd, char* message, uint32_t seqNum, uint32_t ackNum, uin
     tcph->seq = htonl(seqNum);
     tcph->ack_seq = htonl(ackNum);
     tcph->doff = 5;
-    tcph->syn = 1;
-    tcph->ack = 0;
+    tcph->syn = syn;
+    tcph->ack = ack;
     tcph->window = htons(5840);
     tcph->check = 0;
 

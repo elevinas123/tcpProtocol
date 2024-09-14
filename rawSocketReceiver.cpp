@@ -42,7 +42,7 @@ int sendAckMessage(int sockfd, tcphdr * tcph,  u_int16_t port) {
     u_int32_t ackNumber = ntohl(tcph->ack_seq);
 
     if (tcph->syn ==1 && seqNumber == 0) {
-        int messageSent = sendMessage(sockfd, "Test message", 0, seqNumber + 1, 0, 1, port);
+        int messageSent = sendMessage(sockfd, "Test message", 0, seqNumber + 1, 1, 1, port);
         std::cout << "Tcp Ack Sent" << std::endl;
         if (messageSent == 1)
         {
