@@ -14,8 +14,8 @@ extern int sendMessage(int sockfd,
                        uint32_t ackNum,
                        uint8_t syn,
                        uint8_t ack,
-                       uint16_t port);
-
+                       uint16_t port,
+                       bool isLinux);
 extern int createSendingSocket();
 
 int createReceivingSocket(u_int16_t receivingPort) {
@@ -141,7 +141,8 @@ int rawSocketReceiver() {
                                       seqNumberReceived + 1,  // Acknowledge the SYN
                                       1,                      // SYN = 0 for ACK
                                       1,                      // ACK = 1 to acknowledge SYN
-                                      messagePort             // Send to the source port
+                                      messagePort,
+                                      false  // Send to the source port
             );
 
             if (ackSent == 0) {
@@ -157,13 +158,13 @@ int rawSocketReceiver() {
             int ackSent = sendMessage(message_sockfd, "", sequenceNumber,
                                       seqNumberReceived + payloadSize,  // Acknowledge the SYN
                                       0,                                // SYN = 0 for ACK
-                                      1,           // ACK = 1 to acknowledge SYN
-                                      messagePort  // Send to the source port
-            );
+                                      1,            // ACK = 1 to acknowledge SYN
+                                      messagePort,  // Send to the source port
+                                      false);
             if (ackSent != 0) {
                 std::cout << "Failed to send ACK" << std::endl;
             }
-            if (payload.size() <1) continue;
+            if (payload.size() < 1) continue;
             // Assuming payloadInfo has been parsed and message has been processed
             ParsedReceivedMessage payloadInfo = parseReceivedPayloadToStruct(payload);
 
@@ -188,7 +189,7 @@ int rawSocketReceiver() {
             // Example output
             std::cout << "Prepared payload to send: " << charPayload << std::endl;
             int messageSent = sendMessage(message_sockfd, charPayload, sequenceNumber,
-                                          seqNumberReceived, 0, 0, messagePort);
+                                          seqNumberReceived, 0, 0, messagePort, false);
             if (messageSent == 0) {
                 std::cout << "Message Sent" << std::endl;
                 messagesSent++;

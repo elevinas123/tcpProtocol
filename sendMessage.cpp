@@ -29,10 +29,11 @@ struct pseudo_header {
     u_int16_t tcp_length;
 };
 
-int sendMessage(int sockfd, char* message, uint32_t seqNum, uint32_t ackNum, uint8_t syn, uint8_t ack, uint16_t port) {
+int sendMessage(int sockfd, char* message, uint32_t seqNum, uint32_t ackNum, uint8_t syn, uint8_t ack, uint16_t port, bool isLinux) {
     char buffer[4096];
     memset(buffer, 0, sizeof(buffer));
-
+    
+    
     // Step 1: Create IP header
     struct iphdr *iph = (struct iphdr *)buffer;
     iph->version = 4;
@@ -42,8 +43,14 @@ int sendMessage(int sockfd, char* message, uint32_t seqNum, uint32_t ackNum, uin
     iph->frag_off = 0;
     iph->ttl = 64;
     iph->protocol = IPPROTO_TCP;
-    iph->saddr = inet_addr("127.0.0.1");
-    iph->daddr = inet_addr("127.0.0.1");
+    if (isLinux) {
+        iph->saddr = inet_addr("192.168.1.234");
+        iph->daddr = inet_addr("192.168.1.180");
+
+    } else {
+        iph->saddr = inet_addr("192.168.1.180");
+        iph->daddr = inet_addr("192.168.1.234");
+    }
 
     // Step 2: Create TCP header
     struct tcphdr *tcph = (struct tcphdr *)(buffer + sizeof(struct iphdr));
