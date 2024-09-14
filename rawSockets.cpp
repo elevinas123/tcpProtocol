@@ -5,7 +5,9 @@
 #include <unistd.h>  // For close()
 
 #include <cstring>
+#include <fstream>
 #include <iostream>
+#include <vector>
 
 extern int sendMessage(int sockfd,
                        char *message,
@@ -41,10 +43,35 @@ int main() {
     std::cout << "Are you receiver or sender? 0 for receiver, 1 for sender" << std::endl;
     int choice;
     std::cin >> choice;
-
     if (choice == 0) {
         rawSocketReceiver();  // Start the receiver
     } else if (choice == 1) {
+        std::ifstream file("messagesFile.txt");  // Open the file for reading
+        if (!file.is_open()) {
+            std::cerr << "Failed to open file." << std::endl;
+            return 1;
+        }
+
+        std::vector<char *> lines;  // Vector to store lines as char*
+
+        std::string line;
+        // Read each line from the file
+        while (std::getline(file, line)) {
+            // Allocate memory for each line, +1 for the null terminator
+            char *cstr = new char[line.length() + 1];
+            // Copy the line to the dynamically allocated char*
+            std::strcpy(cstr, line.c_str());
+            // Store the char* in the vector
+            lines.push_back(cstr);
+        }
+
+        file.close();  // Close the file
+
+        // Print the stored lines
+        for (const char *line : lines) {
+            std::cout << line << std::endl;
+        }
+
         u_int16_t messagePort = 55000;
         u_int16_t receivingPort = 55001;
         u_int32_t sequenceNumber = 0;
@@ -136,7 +163,7 @@ int main() {
                     if (ackSent == 0) {
                         // After the Ack was send to complete the handShake, send the first data
                         handshakeCompleted = true;
-                        char *message = "Test Data";
+                        char *message = lines[messagesSent];
                         int messageSent = sendMessage(send_sockfd, message, sequenceNumber,
                                                       seqNumberReceived + 1, 0, 0, messagePort);
                         if (messageSent == 0) {
@@ -151,9 +178,9 @@ int main() {
                 }
                 continue;
             }
-            if (tcph->ack == 1 && handshakeCompleted && messagesSent < 5) {
+            if (tcph->ack == 1 && handshakeCompleted && messagesSent < lines.size()) {
                 if (ackNumberReceived == sequenceNumber) {
-                    char *message = "Test Data";
+                    char *message = lines[messagesSent];
                     int messageSent = sendMessage(send_sockfd, message, sequenceNumber,
                                                   seqNumberReceived + 1, 0, 0, messagePort);
                     if (messageSent == 0) {
